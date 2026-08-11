@@ -150,6 +150,7 @@ void resetCallInterceptionOnRequestShutdown()
     }
 
     g_nextFreeFunctionToInterceptId = 0;
+    g_interceptedCallInProgressRegistrationId = 0;
 }
 
 bool addToFunctionsToInterceptData( zend_function* funcEntry, uint32_t* interceptRegistrationId, zif_handler replacementFunc )

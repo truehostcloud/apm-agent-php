@@ -27,3 +27,5 @@ require __DIR__ . '/ElasticApm/Impl/SrcRootDir.php';
 SrcRootDir::$fullPath = __DIR__;
 
 require __DIR__ . '/ElasticApm/Impl/AutoInstrument/bootstrap_php_part.php';
+
+\Elastic\Apm\Impl\AutoInstrument\PhpPartFacade::bootstrap( 0, microtime( true ) * 1000000.0 );

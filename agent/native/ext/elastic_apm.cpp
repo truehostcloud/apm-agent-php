@@ -40,6 +40,8 @@
 
 ZEND_DECLARE_MODULE_GLOBALS( elastic_apm )
 
+static pid_t g_pidOnModuleInit = -1;
+
 Tracer* getGlobalTracer()
 {
     return &( ZEND_MODULE_GLOBALS_ACCESSOR( elastic_apm, globalTracer ) );
@@ -313,6 +315,8 @@ static PHP_GSHUTDOWN_FUNCTION(elastic_apm) {
 PHP_MINIT_FUNCTION(elastic_apm)
 {
     ResultCode resultCode;
+
+    g_pidOnModuleInit = getCurrentProcessId();
 
     // We SHOULD NOT log before resetting state if forked because logging might be using thread synchronization
     // which might deadlock in forked child

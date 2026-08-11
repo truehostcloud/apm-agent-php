@@ -98,10 +98,6 @@ ResultCode bootstrapTracerPhpPart( const ConfigSnapshot* config, const TimePoint
 {
     ResultCode resultCode;
     bool shouldRevertLoadingAgentPhpCode = false;
-    bool bootstrapTracerPhpPartRetVal;
-    zval bootstrapTracerPhpPartArgs[2];
-    ZVAL_UNDEF( &bootstrapTracerPhpPartArgs[0] );
-    ZVAL_UNDEF( &bootstrapTracerPhpPartArgs[1] );
 
     char txtOutStreamBuf[ELASTIC_APM_TEXT_OUTPUT_STREAM_ON_STACK_BUFFER_SIZE];
     TextOutputStream txtOutStream = ELASTIC_APM_TEXT_OUTPUT_STREAM_FROM_STATIC_BUFFER( txtOutStreamBuf );
@@ -126,28 +122,16 @@ ResultCode bootstrapTracerPhpPart( const ConfigSnapshot* config, const TimePoint
     elasticApmBeforeLoadingAgentPhpCode();
     shouldRevertLoadingAgentPhpCode = true;
 
-    ELASTIC_APM_CALL_IF_FAILED_GOTO( loadPhpFile( config->bootstrapPhpPartFile ) );
-
-    ZVAL_LONG(&bootstrapTracerPhpPartArgs[0], getGlobalTracer()->logger.maxEnabledLevel);
-    ZVAL_DOUBLE(&bootstrapTracerPhpPartArgs[1], (double)timePointToEpochMicroseconds(requestInitStartTime));
-
-    ELASTIC_APM_CALL_IF_FAILED_GOTO( callPhpFunctionRetBool(
-            ELASTIC_APM_STRING_LITERAL_TO_VIEW( ELASTIC_APM_PHP_PART_BOOTSTRAP_FUNC )
-            , /* argsCount */ ELASTIC_APM_STATIC_ARRAY_SIZE( bootstrapTracerPhpPartArgs )
-            , /* args */ bootstrapTracerPhpPartArgs
-            , &bootstrapTracerPhpPartRetVal ) );
-    if ( ! bootstrapTracerPhpPartRetVal )
+    if ( PG( auto_prepend_file ) != NULL )
     {
-        ELASTIC_APM_LOG_CRITICAL( "%s failed (returned false). See log for more details.", ELASTIC_APM_PHP_PART_BOOTSTRAP_FUNC );
-        ELASTIC_APM_SET_RESULT_CODE_AND_GOTO_FAILURE();
+        efree( PG( auto_prepend_file ) );
     }
+    PG( auto_prepend_file ) = estrdup( config->bootstrapPhpPartFile );
 
     g_tracerPhpPartState = tracerPhpPartState_after_bootstrap;
     resultCode = resultSuccess;
 
     finally:
-    zval_dtor( &bootstrapTracerPhpPartArgs[0] ); // long is not refcounted - would not do anything
-    zval_dtor( &bootstrapTracerPhpPartArgs[0] ); // double is not refcounted - would not do anything
     if ( shouldRevertLoadingAgentPhpCode )
     {
         elasticApmAfterLoadingAgentPhpCode();
