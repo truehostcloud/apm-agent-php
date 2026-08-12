@@ -154,7 +154,11 @@ final class PhpPartFacade
         ?object $thisObj,
         ...$interceptedCallArgs
     ): bool {
-        $interceptionManager = self::singletonInstance()->interceptionManager;
+        if (self::$singletonInstance === null) {
+            return false;
+        }
+
+        $interceptionManager = self::$singletonInstance->interceptionManager;
         if ($interceptionManager === null) {
             return false;
         }
@@ -178,7 +182,11 @@ final class PhpPartFacade
      */
     public static function internalFuncCallPostHook(bool $hasExitedByException, $returnValueOrThrown): void
     {
-        $interceptionManager = self::singletonInstance()->interceptionManager;
+        if (self::$singletonInstance === null) {
+            return;
+        }
+
+        $interceptionManager = self::$singletonInstance->interceptionManager;
         assert($interceptionManager !== null);
 
         self::ensureHaveLatestDataDeferredByExtension();
