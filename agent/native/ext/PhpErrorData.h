@@ -16,6 +16,7 @@ public:
     int getLineNumber() const;
     std::string_view getMessage() const;
     zval *getStackTrace();
+    void discardStackTraceWithoutDestroying();
 
 private:
     int type_ = -1;

@@ -610,6 +610,11 @@ void elasticApmRequestShutdown()
 
     tracerPhpPartOnRequestShutdown();
 
+    // Last error's stack trace and last thrown reference PHP objects so they must be destroyed
+    // while the objects store is still alive (i.e., before the executor shuts down and not in post deactivate)
+    ELASTICAPM_G(lastErrorData).reset(nullptr);
+    resetLastThrown();
+
     // there is no guarantee that following code will be executed - in case of error on php side
 
     ELASTIC_APM_LOG_DEBUG_FUNCTION_EXIT();
@@ -643,8 +648,13 @@ int  elasticApmRequestPostDeactivate(void) {
 
     resetCallInterceptionOnRequestShutdown();
 
-    ELASTICAPM_G(lastErrorData).reset(nullptr);
-    resetLastThrown();
+    if (ELASTICAPM_G(lastErrorData)) {
+        // The executor has already shut down (objects store is freed) so the stack trace must not be destroyed here
+        ELASTICAPM_G(lastErrorData)->discardStackTraceWithoutDestroying();
+        ELASTICAPM_G(lastErrorData).reset(nullptr);
+    }
+    // Same as above - the exception object belonged to the already freed objects store
+    ZVAL_UNDEF(&ELASTICAPM_G(lastException));
 
     if ( tracer->isInited && isMemoryTrackingEnabled( &tracer->memTracker ) )
     {

@@ -75,6 +75,22 @@ String tracerPhpPartStateToString( TracerPhpPartState value )
 
 static TracerPhpPartState g_tracerPhpPartState = numberOfTracerPhpPartState;
 
+// Process-lifetime copy of the bootstrap file path installed as PG( auto_prepend_file ),
+// and the INI-owned value it replaced (restored on request shutdown).
+static char* g_bootstrapPhpPartFileForPrepend = NULL;
+static char* g_savedAutoPrependFile = NULL;
+static bool g_isAutoPrependFileOverridden = false;
+
+static void restoreAutoPrependFile()
+{
+    if ( g_isAutoPrependFileOverridden )
+    {
+        PG( auto_prepend_file ) = g_savedAutoPrependFile;
+        g_savedAutoPrependFile = NULL;
+        g_isAutoPrependFileOverridden = false;
+    }
+}
+
 bool canInvokeTracerPhpPart() {
     return g_tracerPhpPartState == tracerPhpPartState_after_bootstrap;
 }
@@ -122,11 +138,26 @@ ResultCode bootstrapTracerPhpPart( const ConfigSnapshot* config, const TimePoint
     elasticApmBeforeLoadingAgentPhpCode();
     shouldRevertLoadingAgentPhpCode = true;
 
-    if ( PG( auto_prepend_file ) != NULL )
+    // PG( auto_prepend_file ) outlives the request, so it must not point at request-scoped (emalloc) memory,
+    // and its original value is owned by the INI subsystem so it must not be freed - save it and restore it
+    // on request shutdown instead.
+    if ( g_bootstrapPhpPartFileForPrepend == NULL || strcmp( g_bootstrapPhpPartFileForPrepend, config->bootstrapPhpPartFile ) != 0 )
     {
-        efree( PG( auto_prepend_file ) );
+        char* bootstrapPhpPartFileCopy = strdup( config->bootstrapPhpPartFile );
+        if ( bootstrapPhpPartFileCopy == NULL )
+        {
+            switchTracerPhpPartStateToFailed( /* reason */ "Failed to allocate bootstrap PHP part file path", __FUNCTION__ );
+            ELASTIC_APM_SET_RESULT_CODE_AND_GOTO_FAILURE();
+        }
+        free( g_bootstrapPhpPartFileForPrepend );
+        g_bootstrapPhpPartFileForPrepend = bootstrapPhpPartFileCopy;
     }
-    PG( auto_prepend_file ) = estrdup( config->bootstrapPhpPartFile );
+    if ( ! g_isAutoPrependFileOverridden )
+    {
+        g_savedAutoPrependFile = PG( auto_prepend_file );
+        g_isAutoPrependFileOverridden = true;
+    }
+    PG( auto_prepend_file ) = g_bootstrapPhpPartFileForPrepend;
 
     g_tracerPhpPartState = tracerPhpPartState_after_bootstrap;
     resultCode = resultSuccess;
@@ -154,6 +185,17 @@ void shutdownTracerPhpPart()
     {
         switchTracerPhpPartStateToFailed( /* reason */ "Unexpected current tracer PHP part state", __FUNCTION__ );
         ELASTIC_APM_SET_RESULT_CODE_AND_GOTO_FAILURE();
+    }
+
+    // The PHP part is loaded via auto_prepend_file, which PHP does not run for some invocations
+    // (e.g. `php -r', `php -m') - calling into it then fails with a fatal "Invalid callback" error.
+    static const char phpPartFacadeClassLowerCase[] = "elastic\\apm\\impl\\autoinstrument\\phppartfacade";
+    if ( ! zend_hash_str_exists( EG( class_table ), phpPartFacadeClassLowerCase, sizeof( phpPartFacadeClassLowerCase ) - 1 ) )
+    {
+        ELASTIC_APM_LOG_DEBUG( "Tracer PHP part was not loaded for this request - skipping its shutdown" );
+        g_tracerPhpPartState = tracerPhpPartState_after_shutdown;
+        resultCode = resultSuccess;
+        goto finally;
     }
 
     ELASTIC_APM_CALL_IF_FAILED_GOTO( callPhpFunctionRetVoid(
@@ -399,4 +441,5 @@ ResultCode tracerPhpPartOnRequestInit( const ConfigSnapshot* config, const TimeP
 void tracerPhpPartOnRequestShutdown()
 {
     shutdownTracerPhpPart();
+    restoreAutoPrependFile();
 }

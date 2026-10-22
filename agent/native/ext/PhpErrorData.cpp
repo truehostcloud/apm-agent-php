@@ -20,6 +20,12 @@ PhpErrorData::~PhpErrorData() {
     zval_ptr_dtor(&stackTrace_);
 }
 
+void PhpErrorData::discardStackTraceWithoutDestroying() {
+    // Used after the executor has shut down: the stack trace may reference objects from the already freed objects store,
+    // so destroying it would write to freed memory. Its memory is in the request pool and is freed with it.
+    ZVAL_UNDEF(&stackTrace_);
+}
+
 int PhpErrorData::getType() const {
     return type_;
 }
